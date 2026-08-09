@@ -8,7 +8,14 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { GasService } from './services/gasService';
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    try {
+      const storedUser = localStorage.getItem('smartschool_user');
+      return storedUser ? JSON.parse(storedUser) : null;
+    } catch (e) {
+      return null;
+    }
+  });
   const [schoolSettings, setSchoolSettings] = useState<Settings>({
     webAppUrl: '',
     schoolName: 'SMP Negeri 1 SmartSchool',
@@ -19,14 +26,6 @@ export default function App() {
   });
 
   useEffect(() => {
-    // Load stored user session if any
-    const storedUser = localStorage.getItem('smartschool_user');
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (e) {}
-    }
-
     // Load initial settings
     GasService.getSettings().then(res => {
       if (res && res.success && res.settings) {

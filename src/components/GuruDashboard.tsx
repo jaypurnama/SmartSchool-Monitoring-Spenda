@@ -26,7 +26,6 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
   const [qrScanning, setQrScanning] = useState<boolean>(false);
   const [scannedClass, setScannedClass] = useState<any | null>(null);
   const [scannedJadwal, setScannedJadwal] = useState<any | null>(null);
-  const [manualQrInput, setManualQrInput] = useState<string>('KLS-001');
   const [qrStatusMsg, setQrStatusMsg] = useState<string>('');
   const [qrErrorMsg, setQrErrorMsg] = useState<string>('');
   const [cameras, setCameras] = useState<Array<{ id: string; label: string }>>([]);
@@ -130,15 +129,37 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
   };
 
   const startCamera = async () => {
+    setCameraActive(true);
     try {
-      setCameraActive(true);
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+      let stream: MediaStream | null = null;
+      // Try facingMode user (front camera) for selfie
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }
+        });
+      } catch (err1) {
+        console.warn("Strict facingMode user failed, trying fallback...", err1);
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        } catch (err2) {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        }
+      }
+
+      if (stream) {
+        setTimeout(() => {
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            videoRef.current.muted = true;
+            videoRef.current.play().catch(e => console.warn("Video play error:", e));
+          }
+        }, 150);
       }
     } catch (err: any) {
-      alert("Kamera tidak dapat diakses: " + err.message);
+      console.error("Selfie camera error:", err);
       setCameraActive(false);
+      alert("Kamera live browser terkendala: " + (err?.message || "Akses kamera tidak diizinkan") + ". Membuka aplikasi kamera HP bawaan untuk foto selfie...");
+      fileInputSelfieRef.current?.click();
     }
   };
 
@@ -146,12 +167,17 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
-      canvas.width = 320;
-      canvas.height = 240;
+      const width = video.videoWidth || 640;
+      const height = video.videoHeight || 480;
+      canvas.width = width;
+      canvas.height = height;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.drawImage(video, 0, 0, 320, 240);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        // Mirror snapshot to match live selfie mirror view
+        ctx.translate(width, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(video, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
         setPhotoBase64(dataUrl);
         
         // Stop video tracks
@@ -392,7 +418,7 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
           {/* Camera Frame Box */}
           <div className="w-full h-48 bg-slate-950 rounded-xl overflow-hidden relative border border-slate-800 flex items-center justify-center">
             {cameraActive ? (
-              <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform -scale-x-100" />
             ) : photoBase64 ? (
               <img src={photoBase64} alt="Selfie" className="w-full h-full object-cover" />
             ) : (
@@ -589,36 +615,34 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
             </div>
           )}
 
-          {/* Alternative QR Code Selector / Manual Test */}
-          <div className="pt-2 border-t border-slate-100 space-y-2">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Uji Coba QR Kelas (Pilih Manual):</p>
-            <div className="flex gap-2">
-              <select
-                value={manualQrInput}
-                onChange={(e) => setManualQrInput(e.target.value)}
-                className="flex-1 px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-200 text-xs font-semibold outline-none"
-              >
-                <option value="KLS-001">Kelas VII.A (KLS-001)</option>
-                <option value="KLS-002">Kelas VII.B (KLS-002)</option>
-                <option value="KLS-003">Kelas VIII.A (KLS-003)</option>
-                <option value="KLS-004">Kelas VIII.B (KLS-004)</option>
-                <option value="KLS-005">Kelas IX.A (KLS-005)</option>
-              </select>
-              <button
-                type="button"
-                onClick={() => handleValidateQr(manualQrInput)}
-                className="px-3.5 py-1.5 bg-slate-900 text-white text-xs font-bold rounded-lg hover:bg-slate-800 transition"
-              >
-                Validasi QR
-              </button>
+          {/* STATUS HASIL SCAN QR KELAS */}
+          {scannedClass ? (
+            <div className="p-4 bg-emerald-50 border-2 border-emerald-500 rounded-xl shadow-sm text-emerald-950 font-medium flex items-center gap-3">
+              <div className="w-10 h-10 bg-emerald-600 text-white rounded-full flex items-center justify-center shrink-0 shadow-md">
+                <CheckCircle2 className="w-6 h-6" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] text-emerald-700 font-extrabold uppercase tracking-wider">Hasil Scan QR Terkonfirmasi</p>
+                <p className="text-sm font-bold text-slate-900 mt-0.5">
+                  <span className="text-emerald-700 font-extrabold">{user.nama}</span> akan siap mengajar di kelas <span className="text-indigo-700 font-black underline underline-offset-2 decoration-2 decoration-indigo-400">{scannedClass.namaKelas || scannedClass.id || 'Kelas'}</span>
+                </p>
+                {scannedJadwal && scannedJadwal.mapel && (
+                  <p className="text-[11px] text-slate-600 font-medium mt-1">
+                    Mata Pelajaran: <span className="font-bold text-slate-800">{scannedJadwal.mapel}</span>
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 font-medium flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-slate-400 shrink-0" />
+              <span>Belum ada QR kelas yang discan. Silakan scan QR Code pintu kelas untuk mulai mengisi Jurnal Mengajar.</span>
+            </div>
+          )}
 
           {/* Validation Status Message */}
-          {qrStatusMsg && (
-            <div className={`p-3 rounded-lg text-xs font-semibold border ${
-              scannedClass ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200'
-            }`}>
+          {qrStatusMsg && !scannedClass && (
+            <div className="p-3 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-semibold">
               {qrStatusMsg}
             </div>
           )}

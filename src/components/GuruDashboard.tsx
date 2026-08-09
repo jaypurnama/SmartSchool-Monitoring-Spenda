@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Jadwal, Settings } from '../types';
 import { GasService } from '../services/gasService';
-import { Html5QrcodeScanner } from 'html5-qrcode';
-import { Camera, MapPin, QrCode, BookOpen, CheckCircle2, Clock, AlertCircle, Sparkles, Send, RotateCcw, Calendar, Check } from 'lucide-react';
+import { Html5Qrcode } from 'html5-qrcode';
+import { Camera, MapPin, QrCode, BookOpen, CheckCircle2, Clock, AlertCircle, Sparkles, Send, RotateCcw, Calendar, Check, Upload, ShieldAlert } from 'lucide-react';
 
 interface GuruDashboardProps {
   user: User;
@@ -28,6 +28,25 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
   const [scannedJadwal, setScannedJadwal] = useState<any | null>(null);
   const [manualQrInput, setManualQrInput] = useState<string>('KLS-001');
   const [qrStatusMsg, setQrStatusMsg] = useState<string>('');
+  const [qrErrorMsg, setQrErrorMsg] = useState<string>('');
+  const [cameras, setCameras] = useState<Array<{ id: string; label: string }>>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
+
+  const fileInputQrRef = useRef<HTMLInputElement | null>(null);
+  const fileInputSelfieRef = useRef<HTMLInputElement | null>(null);
+  const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
+
+  const handleSelfieFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setPhotoBase64(reader.result as string);
+      setCameraActive(false);
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Jurnal Form State
   const [subBabMateri, setSubBabMateri] = useState<string>('');
@@ -198,31 +217,109 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
     }
   };
 
-  // HTML5 QR Code Scanner Init
+  // HTML5 QR Code Scanner Init with Direct Mobile Rear Camera Support
   useEffect(() => {
-    if (qrScanning) {
-      const scanner = new Html5QrcodeScanner(
-        "qr-reader-box",
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        /* verbose= */ false
-      );
+    let isCancelled = false;
 
-      scanner.render(
-        (decodedText) => {
-          scanner.clear();
-          setQrScanning(false);
-          handleValidateQr(decodedText);
-        },
-        (error) => {
-          // ignore scan errors
+    if (qrScanning) {
+      setQrErrorMsg('');
+      const qrRegionId = "qr-reader-box";
+      const html5QrCode = new Html5Qrcode(qrRegionId);
+      html5QrCodeRef.current = html5QrCode;
+
+      const startScannerWithCamera = async () => {
+        try {
+          const devices = await Html5Qrcode.getCameras();
+          if (!isCancelled && devices && devices.length > 0) {
+            setCameras(devices);
+            
+            // Prefer back/rear camera on mobile
+            const backCam = devices.find(d => 
+              d.label.toLowerCase().includes('back') || 
+              d.label.toLowerCase().includes('rear') || 
+              d.label.toLowerCase().includes('belakang') ||
+              d.label.toLowerCase().includes('environment')
+            );
+
+            const camId = selectedCameraId || (backCam ? backCam.id : devices[0].id);
+
+            await html5QrCode.start(
+              camId,
+              { fps: 10, qrbox: { width: 250, height: 250 } },
+              (decodedText) => {
+                if (html5QrCode.isScanning) {
+                  html5QrCode.stop().then(() => {
+                    html5QrCode.clear();
+                  }).catch(() => {});
+                }
+                setQrScanning(false);
+                handleValidateQr(decodedText);
+              },
+              () => {}
+            );
+          } else {
+            // Fallback to facingMode environment constraint
+            await html5QrCode.start(
+              { facingMode: "environment" },
+              { fps: 10, qrbox: { width: 250, height: 250 } },
+              (decodedText) => {
+                if (html5QrCode.isScanning) {
+                  html5QrCode.stop().then(() => {
+                    html5QrCode.clear();
+                  }).catch(() => {});
+                }
+                setQrScanning(false);
+                handleValidateQr(decodedText);
+              },
+              () => {}
+            );
+          }
+        } catch (err: any) {
+          console.error("Camera scan start error:", err);
+          if (!isCancelled) {
+            setQrErrorMsg("Izin kamera ditolak atau tidak dapat diakses di HP Anda: " + (err?.message || err) + ". Anda dapat memilih kamera lain, gunakan tombol 'Foto / Unggah QR', atau pilih manual.");
+          }
         }
-      );
+      };
+
+      startScannerWithCamera();
 
       return () => {
-        scanner.clear().catch(e => {});
+        isCancelled = true;
+        if (html5QrCodeRef.current) {
+          if (html5QrCodeRef.current.isScanning) {
+            html5QrCodeRef.current.stop().then(() => {
+              html5QrCodeRef.current?.clear();
+            }).catch(() => {});
+          }
+        }
       };
     }
-  }, [qrScanning]);
+  }, [qrScanning, selectedCameraId]);
+
+  const stopQrScanner = async () => {
+    if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
+      try {
+        await html5QrCodeRef.current.stop();
+        html5QrCodeRef.current.clear();
+      } catch (e) {}
+    }
+    setQrScanning(false);
+  };
+
+  const handleFileUploadQr = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setQrStatusMsg("Menganalisis foto QR Code...");
+    try {
+      const html5QrCode = new Html5Qrcode("qr-file-temp-reader");
+      const decodedText = await html5QrCode.scanFile(file, true);
+      handleValidateQr(decodedText);
+    } catch (err: any) {
+      setQrStatusMsg("Gagal membaca QR Code dari foto. Pastikan gambar QR Code kelas terlihat jelas dan terang.");
+    }
+  };
 
   const handleSimpanJurnal = async () => {
     if (!scannedClass) {
@@ -307,17 +404,37 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
             <canvas ref={canvasRef} className="hidden" />
           </div>
 
+          {/* Hidden Selfie File Input */}
+          <input
+            type="file"
+            ref={fileInputSelfieRef}
+            accept="image/*"
+            capture="user"
+            className="hidden"
+            onChange={handleSelfieFileUpload}
+          />
+
           {/* Camera Actions */}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {!cameraActive ? (
-              <button
-                type="button"
-                onClick={startCamera}
-                className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border border-slate-200"
-              >
-                <Camera className="w-3.5 h-3.5 text-slate-600" />
-                <span>Buka Kamera</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={startCamera}
+                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 border border-slate-200"
+                >
+                  <Camera className="w-3.5 h-3.5 text-slate-600" />
+                  <span>Kamera Live</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputSelfieRef.current?.click()}
+                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 border border-slate-200"
+                >
+                  <Upload className="w-3.5 h-3.5 text-slate-600" />
+                  <span>Foto / Upload Selfie</span>
+                </button>
+              </>
             ) : (
               <button
                 type="button"
@@ -332,10 +449,11 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
               <button
                 type="button"
                 onClick={() => { setPhotoBase64(''); setCameraActive(false); }}
-                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold border border-slate-200"
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold border border-slate-200 flex items-center gap-1"
                 title="Foto ulang"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
+                <span className="text-[11px]">Ulang</span>
               </button>
             )}
           </div>
@@ -392,26 +510,84 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
             </span>
           </div>
 
+          {/* Hidden File Scanner Element */}
+          <div id="qr-file-temp-reader" className="hidden"></div>
+          <input
+            type="file"
+            ref={fileInputQrRef}
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleFileUploadQr}
+          />
+
           {/* Scanner Area */}
           <div>
             {qrScanning ? (
-              <div id="qr-reader-box" className="w-full rounded-xl overflow-hidden border border-slate-200"></div>
+              <div className="space-y-3">
+                <div id="qr-reader-box" className="w-full min-h-[260px] rounded-xl overflow-hidden border-2 border-indigo-500 bg-black"></div>
+                
+                {cameras.length > 1 && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-bold text-slate-600 shrink-0">Ganti Kamera:</label>
+                    <select
+                      value={selectedCameraId}
+                      onChange={(e) => setSelectedCameraId(e.target.value)}
+                      className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold outline-none"
+                    >
+                      {cameras.map(c => (
+                        <option key={c.id} value={c.id}>{c.label || `Kamera ${c.id}`}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={stopQrScanner}
+                  className="w-full py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-bold transition"
+                >
+                  Tutup Kamera Pemindai
+                </button>
+              </div>
             ) : (
               <div className="p-4 bg-slate-50 rounded-xl border border-dashed border-slate-300 text-center space-y-3">
                 <QrCode className="w-8 h-8 text-indigo-500 mx-auto" />
-                <p className="text-xs text-slate-600 font-medium">Arahkan kamera ke QR Code yang terpasang di pintu kelas.</p>
-                <div className="flex justify-center gap-2">
+                <p className="text-xs text-slate-600 font-medium">Arahkan kamera HP ke QR Code yang terpasang di pintu kelas.</p>
+                
+                <div className="flex flex-wrap justify-center gap-2">
                   <button
                     type="button"
                     onClick={() => setQrScanning(true)}
-                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition shadow-sm"
+                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition shadow-sm flex items-center gap-1.5"
                   >
-                    Buka Pemindai QR
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Buka Pemindai QR Live</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => fileInputQrRef.current?.click()}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition shadow-sm flex items-center gap-1.5"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Ambil / Unggah Foto QR</span>
                   </button>
                 </div>
               </div>
             )}
           </div>
+
+          {/* Error Message if Camera Blocked/Failed */}
+          {qrErrorMsg && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-medium flex items-start gap-2">
+              <ShieldAlert className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Akses Kamera Terkendala</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed">{qrErrorMsg}</p>
+              </div>
+            </div>
+          )}
 
           {/* Alternative QR Code Selector / Manual Test */}
           <div className="pt-2 border-t border-slate-100 space-y-2">

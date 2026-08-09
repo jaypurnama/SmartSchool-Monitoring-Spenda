@@ -445,7 +445,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Web App URL Google Apps Script (Sesuai Deploy)</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Web App URL Google Apps Script Database (Akses Semua Perangkat)</label>
               <input
                 type="url"
                 placeholder="https://script.google.com/macros/s/.../exec"
@@ -453,7 +453,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
                 onChange={(e) => setSettings({ ...settings, webAppUrl: e.target.value })}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500"
               />
-              <p className="text-[11px] text-slate-400 mt-1">Masukkan URL Web App GAS jika ingin menghubungkan front-end ini secara langsung ke Google Apps Script.</p>
+              <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+                💡 <strong>Tips Multi-Perangkat (HP/Laptop Guru):</strong> Simpan URL Web App GAS di sini. Untuk memastikan seluruh HP guru/kepsek terhubung otomatis tanpa konfigurasi ulang di setiap HP, Anda juga bisa menambahkan Environment Variable <code className="bg-slate-100 font-bold px-1 py-0.5 rounded text-emerald-700">VITE_GAS_WEB_APP_URL</code> di dashboard Vercel / GitHub repo Anda.
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

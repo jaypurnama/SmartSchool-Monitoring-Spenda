@@ -2,13 +2,22 @@ import { Settings, User } from "../types";
 
 // Dynamic API Service Handler for Apps Script & Browser Environment
 export class GasService {
+  // Global default fallback Web App URL for multi-device support
+  public static DEFAULT_WEB_APP_URL: string = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GAS_WEB_APP_URL) || "";
+
   public static getStoredWebAppUrl(): string {
-    return localStorage.getItem("gas_web_app_url") || "";
+    const local = localStorage.getItem("gas_web_app_url");
+    if (local && local.trim()) {
+      return local.trim();
+    }
+    return this.DEFAULT_WEB_APP_URL;
   }
 
   public static setStoredWebAppUrl(url: string) {
     if (url && url.trim()) {
-      localStorage.setItem("gas_web_app_url", url.trim());
+      const trimmed = url.trim();
+      localStorage.setItem("gas_web_app_url", trimmed);
+      this.DEFAULT_WEB_APP_URL = trimmed;
     } else {
       localStorage.removeItem("gas_web_app_url");
     }

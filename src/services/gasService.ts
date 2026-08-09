@@ -120,16 +120,21 @@ export class GasService {
   public static async saveAbsenHarian(data: {
     guruId: string;
     fotoBase64: string;
+    fotoUrl?: string;
     latLong: string;
     tipe: 'masuk' | 'pulang';
   }) {
-    const gasRes = await this.callGasProxy("saveAbsenHarian", data);
+    const payload = {
+      ...data,
+      fotoUrl: data.fotoUrl || (data.fotoBase64.startsWith('http') ? data.fotoBase64 : "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300")
+    };
+    const gasRes = await this.callGasProxy("saveAbsenHarian", payload);
     if (gasRes) return gasRes;
 
     const apiRes = await this.safeFetchApi("/api/absen", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data)
+      body: JSON.stringify(payload)
     });
     if (apiRes) return apiRes;
 

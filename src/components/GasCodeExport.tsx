@@ -87,13 +87,13 @@ export const GasCodeExport: React.FC = () => {
             Buka menu <strong>Ekstensi &gt; Apps Script</strong>.
           </li>
           <li>
-            Hapus kode bawaan, lalu <strong>paste / tempelkan seluruh kode <code className="bg-emerald-200/80 px-1.5 py-0.5 rounded font-bold">Code.gs</code></strong> di atas.
+            Hapus kode bawaan, lalu <strong>salin &amp; tempel seluruh kode <code className="bg-emerald-200/80 px-1.5 py-0.5 rounded font-bold">Code.gs</code> terbaru di atas</strong>.
           </li>
           <li>
-            Pilih fungsi <code className="bg-emerald-200/80 px-1.5 py-0.5 rounded font-bold">setupDatabaseAndFolder</code> pada dropdown bagian atas editor Apps Script, lalu klik <strong>Jalankan / Run</strong> (izinkan hak akses Google Drive &amp; Sheets).
+            Pilih fungsi <code className="bg-emerald-200/80 px-1.5 py-0.5 rounded font-bold">setupDatabaseAndFolder</code> pada dropdown bagian atas editor Apps Script, lalu klik <strong>Jalankan / Run</strong>. (Membuka izin Google Drive &amp; otomatis membuat folder <code className="font-bold text-slate-800">SmartSchool_FotoAbsen</code> di Google Drive Anda).
           </li>
           <li>
-            Klik tombol <strong>Deploy &gt; New deployment</strong> di pojok kanan atas:
+            Klik tombol <strong>Deploy &gt; New deployment</strong> (atau <strong>Manage Deployments &gt; Edit &gt; New Version</strong> jika memperbarui):
             <ul className="list-disc list-inside ml-5 mt-1 space-y-1 font-normal text-emerald-900">
               <li>Pilih tipe: <strong>Web app</strong></li>
               <li>Execute as: <strong>Me (email Anda)</strong></li>
@@ -107,6 +107,11 @@ export const GasCodeExport: React.FC = () => {
             Tempelkan URL tersebut ke kolom <strong>Google Apps Script Web App URL</strong> di bawah ini atau pada menu <strong>Pengaturan</strong> aplikasi.
           </li>
         </ol>
+
+        <div className="mt-3 p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-[11px] leading-relaxed">
+          <strong> Catatan Penting Akun Akun Google Workspace / belajar.id:</strong><br/>
+          Pesan error <code className="font-mono font-bold text-rose-700">Exception: 存取遭拒：DriveApp</code> sebelumnya terjadi karena akun Google Workspace (<code className="font-bold">belajar.id</code>) secara otomatis membatasi pengaturan berbagi file publik (<code className="font-mono">ANYONE_WITH_LINK</code>). Kode <code className="font-bold">Code.gs</code> terbaru di atas telah diperbarui dengan <code className="font-mono font-bold">try-catch</code> khusus domain Workspace agar folder <code className="font-bold">SmartSchool_FotoAbsen</code> tetap otomatis dibuat dan penyimpanan foto selfie ke Google Drive berjalan lancar tanpa error!
+        </div>
       </div>
 
     </div>

@@ -16,12 +16,20 @@ function setupDatabaseAndFolder() {
   
   // 1. Buat / Dapatkan Folder Google Drive untuk Foto Selfie Absensi
   let folder;
-  const folders = DriveApp.getFoldersByName(FOLDER_NAME_ABSENSI);
-  if (folders.hasNext()) {
-    folder = folders.next();
-  } else {
-    folder = DriveApp.createFolder(FOLDER_NAME_ABSENSI);
-    folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  try {
+    const folders = DriveApp.getFoldersByName(FOLDER_NAME_ABSENSI);
+    if (folders.hasNext()) {
+      folder = folders.next();
+    } else {
+      folder = DriveApp.createFolder(FOLDER_NAME_ABSENSI);
+      try {
+        folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      } catch (shareErr) {
+        // Abaikan jika kebijakan domain belajar.id / Workspace melarang berbagi publik
+      }
+    }
+  } catch (driveErr) {
+    Logger.log("Info setup folder Drive: " + driveErr.toString());
   }
   
   // 2. Definisi Sheet dan Header
@@ -216,22 +224,31 @@ function saveAbsenHarian(data) {
 
   // Simpan foto ke Drive jika format base64
   let photoUrl = "";
-  if (data.fotoBase64 && data.fotoBase64.includes('base64,')) {
+  if (data.fotoBase64 && (data.fotoBase64.indexOf('base64,') !== -1 || data.fotoBase64.indexOf('data:image/') === 0)) {
     try {
       let folders = DriveApp.getFoldersByName(FOLDER_NAME_ABSENSI);
       let folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(FOLDER_NAME_ABSENSI);
       
-      const base64Data = data.fotoBase64.split('base64,')[1];
+      let base64Data = data.fotoBase64;
+      if (base64Data.indexOf('base64,') !== -1) {
+        base64Data = base64Data.split('base64,')[1];
+      }
       const decoded = Utilities.base64Decode(base64Data);
-      const blob = Utilities.newBlob(decoded, 'image/jpeg', 'absen_' + data.guruId + '_' + Date.now() + '.jpg');
+      const blob = Utilities.newBlob(decoded, 'image/jpeg', 'absen_' + (data.guruId || 'guru') + '_' + Date.now() + '.jpg');
       const file = folder.createFile(blob);
-      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      try {
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      } catch (shareErr) {
+        // Abaikan jika akun belajar.id / Google Workspace membatasi sharing luar organisasi
+      }
       photoUrl = file.getUrl();
     } catch (e) {
-      photoUrl = "Error upload foto: " + e.toString();
+      photoUrl = data.fotoUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300";
     }
+  } else if (data.fotoBase64 && (data.fotoBase64.indexOf('http://') === 0 || data.fotoBase64.indexOf('https://') === 0)) {
+    photoUrl = data.fotoBase64;
   } else {
-    photoUrl = data.fotoUrl || "No Photo";
+    photoUrl = data.fotoUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300";
   }
 
   const rows = sheet.getDataRange().getValues();

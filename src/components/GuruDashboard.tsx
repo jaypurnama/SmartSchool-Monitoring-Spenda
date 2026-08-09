@@ -242,9 +242,17 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
   };
 
   const handleKirimAbsen = async (tipe: 'masuk' | 'pulang') => {
-    if (!photoBase64) {
-      alert("Silakan atur & ambil foto selfie terlebih dahulu!");
-      return;
+    let finalPhoto = photoBase64;
+
+    if (!finalPhoto) {
+      const confirmNoPhoto = confirm(
+        "Foto selfie belum diambil/diunggah. Apakah Anda ingin tetap melanjutkan absensi tanpa foto selfie?"
+      );
+      if (!confirmNoPhoto) {
+        return;
+      }
+      // Default fallback avatar photo if user chooses to proceed without live photo
+      finalPhoto = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300";
     }
 
     setAbsenLoading(true);
@@ -255,18 +263,20 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
     try {
       const res = await GasService.saveAbsenHarian({
         guruId: user.id,
-        fotoBase64,
+        fotoBase64: finalPhoto,
         latLong: latLongStr,
         tipe
       });
 
       if (res && res.success) {
         setAbsenSuccessMsg(res.message);
+        alert(`Presensi ${tipe === 'masuk' ? 'Masuk' : 'Pulang'} Berhasil!\n\n` + res.message);
       } else {
-        alert(res.message || "Gagal menyimpan absensi");
+        alert(res?.message || "Gagal menyimpan absensi");
       }
     } catch (err: any) {
-      alert("Error: " + err.message);
+      console.error("Absen error:", err);
+      alert("Terjadi kesalahan saat menyimpan absensi: " + (err?.message || err));
     } finally {
       setAbsenLoading(false);
     }

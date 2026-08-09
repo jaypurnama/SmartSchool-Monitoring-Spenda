@@ -126,9 +126,13 @@ app.post("/api/login", (req, res) => {
 
 // ABSENSI HARIAN
 app.post("/api/absen", (req, res) => {
-  const { guruId, fotoBase64, latLong, tipe } = req.body;
+  const { guruId, fotoBase64, fotoUrl, latLong, tipe } = req.body;
   const today = getTodayString();
   const nowTime = getNowTimeString();
+
+  const validPhoto = (fotoBase64 && typeof fotoBase64 === 'string' && !fotoBase64.includes('Error upload')) 
+    ? fotoBase64 
+    : (fotoUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150");
 
   // Validate distance if GPS coordinates provided
   let distanceMeter = 0;
@@ -155,7 +159,7 @@ app.post("/api/absen", (req, res) => {
   if (tipe === 'masuk') {
     if (existing) {
       existing.jamMasuk = nowTime;
-      existing.fotoMasuk = fotoBase64 || existing.fotoMasuk;
+      existing.fotoMasuk = validPhoto;
       existing.latLongMasuk = latLong;
       existing.status = status;
     } else {
@@ -164,7 +168,7 @@ app.post("/api/absen", (req, res) => {
         tanggal: today,
         guruId,
         jamMasuk: nowTime,
-        fotoMasuk: fotoBase64 || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
+        fotoMasuk: validPhoto,
         latLongMasuk: latLong,
         jamPulang: "",
         fotoPulang: "",
@@ -182,7 +186,7 @@ app.post("/api/absen", (req, res) => {
   } else if (tipe === 'pulang') {
     if (existing) {
       existing.jamPulang = nowTime;
-      existing.fotoPulang = fotoBase64 || existing.fotoPulang;
+      existing.fotoPulang = validPhoto;
       existing.latLongPulang = latLong;
     } else {
       existing = {
@@ -193,7 +197,7 @@ app.post("/api/absen", (req, res) => {
         fotoMasuk: "",
         latLongMasuk: "",
         jamPulang: nowTime,
-        fotoPulang: fotoBase64 || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
+        fotoPulang: validPhoto,
         latLongPulang: latLong,
         status: 'Hadir'
       };

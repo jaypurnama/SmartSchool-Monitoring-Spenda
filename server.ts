@@ -286,6 +286,9 @@ app.get("/api/monitoring", (req, res) => {
   const userMap: Record<string, string> = {};
   usersData.forEach(u => { userMap[u.id] = u.nama; });
 
+  const kelasMap: Record<string, string> = {};
+  kelasData.forEach(k => { kelasMap[k.id] = k.namaKelas; });
+
   // Count late teachers today
   const totalGuruTerlambatHariIni = absensiHarianData.filter(a => a.tanggal === todayStr && a.status === 'Terlambat').length;
 
@@ -365,13 +368,24 @@ app.get("/api/monitoring", (req, res) => {
     }
   });
 
+  const enrichedJournals = jurnalMengajarData.map(j => ({
+    ...j,
+    guruNama: userMap[j.guruId] || j.guruId,
+    kelasNama: kelasMap[j.kelasId] || j.kelasId
+  }));
+
+  const enrichedAbsensi = absensiHarianData.map(a => ({
+    ...a,
+    guruNama: userMap[a.guruId] || a.guruId
+  }));
+
   res.json({
     success: true,
     totalGuruTerlambatHariIni,
     totalGuruTanpaAbsenBulanIni,
     classes: classStatusList,
-    journals: jurnalMengajarData,
-    absensi: absensiHarianData
+    journals: enrichedJournals,
+    absensi: enrichedAbsensi
   });
 });
 

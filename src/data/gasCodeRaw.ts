@@ -414,6 +414,10 @@ function getRealtimeMonitoringData() {
 
   const sheetKelas = ss.getSheetByName('KELAS');
   const kelasRows = sheetKelas.getDataRange().getValues();
+  const kelasMap = {};
+  for (let i = 1; i < kelasRows.length; i++) {
+    kelasMap[kelasRows[i][0]] = kelasRows[i][1];
+  }
 
   const sheetJadwal = ss.getSheetByName('JADWAL');
   const jadwalRows = sheetJadwal.getDataRange().getValues();
@@ -431,21 +435,35 @@ function getRealtimeMonitoringData() {
   const sheetAbsen = ss.getSheetByName('ABSENSI_HARIAN');
   const absenRows = sheetAbsen.getDataRange().getValues();
 
+  function formatDateVal(val) {
+    if (!val) return "";
+    if (val instanceof Date) {
+      var year = val.getFullYear();
+      var month = ("0" + (val.getMonth() + 1)).slice(-2);
+      var day = ("0" + val.getDate()).slice(-2);
+      return year + "-" + month + "-" + day;
+    }
+    var s = String(val).trim();
+    if (s.indexOf("T") !== -1) {
+      return s.split("T")[0];
+    }
+    return s;
+  }
+
   // Hitung statistik Kepala Sekolah
   let totalGuruTerlambatHariIni = 0;
   for (let i = 1; i < absenRows.length; i++) {
-    if (absenRows[i][1] === todayStr && absenRows[i][9] === 'Terlambat') {
+    if (formatDateVal(absenRows[i][1]) === todayStr && absenRows[i][9] === 'Terlambat') {
       totalGuruTerlambatHariIni++;
     }
   }
 
   // Tanpa Absen Bulan Ini
   let totalGuruTanpaAbsenBulanIni = 0;
-  const currentMonth = todayStr.substring(0, 7);
-  // Hitung total guru
-  let totalGuruCount = 0;
-  for (let i = 1; i < userRows.length; i++) {
-    if (userRows[i][4] === 'Guru') totalGuruCount++;
+  for (let i = 1; i < absenRows.length; i++) {
+    if (absenRows[i][9] === 'Tanpa Absen') {
+      totalGuruTanpaAbsenBulanIni++;
+    }
   }
 
   const classStatusList = [];
@@ -471,23 +489,42 @@ function getRealtimeMonitoringData() {
     }
 
     if (!activeJadwal) {
+      for (let j = 1; j < jadwalRows.length; j++) {
+        if (jadwalRows[j][4] === kId) {
+          activeJadwal = {
+            jadwalId: jadwalRows[j][0],
+            jamMulai: jadwalRows[j][2],
+            jamSelesai: jadwalRows[j][3],
+            guruId: jadwalRows[j][5],
+            mapel: jadwalRows[j][6]
+          };
+          break;
+        }
+      }
+    }
+
+    if (!activeJadwal) {
       classStatusList.push({
         kelasId: kId,
         namaKelas: kNama,
         status: 'Guru Belum Masuk',
+        namaGuru: 'Belum Ada Jadwal',
+        mapel: '-',
+        jamMulai: '07:30',
+        jamSelesai: '16:00',
         message: 'Tidak ada jadwal mengajar saat ini'
       });
       continue;
     }
 
-    const guruNama = userMap[activeJadwal.guruId] || 'Guru ID: ' + activeJadwal.guruId;
+    const guruNama = userMap[activeJadwal.guruId] || activeJadwal.guruId;
 
     // Cek apakah ada jurnal mengajar hari ini untuk kelas & guru ini
     let hasJurnal = false;
     let jurnalMateri = "";
     let jurnalSiswa = 0;
     for (let j = 1; j < jurnalRows.length; j++) {
-      if (jurnalRows[j][1] === todayStr && jurnalRows[j][3] === kId && jurnalRows[j][4] === activeJadwal.guruId) {
+      if (formatDateVal(jurnalRows[j][1]) === todayStr && jurnalRows[j][3] === kId) {
         hasJurnal = true;
         jurnalMateri = jurnalRows[j][6];
         jurnalSiswa = jurnalRows[j][7];
@@ -505,6 +542,7 @@ function getRealtimeMonitoringData() {
         namaKelas: kNama,
         status: statusKbm,
         namaGuru: guruNama,
+        guruId: activeJadwal.guruId,
         mapel: activeJadwal.mapel,
         jamMulai: activeJadwal.jamMulai,
         jamSelesai: activeJadwal.jamSelesai,
@@ -523,6 +561,7 @@ function getRealtimeMonitoringData() {
           namaKelas: kNama,
           status: 'Terlambat',
           namaGuru: guruNama,
+          guruId: activeJadwal.guruId,
           mapel: activeJadwal.mapel,
           jamMulai: activeJadwal.jamMulai,
           jamSelesai: activeJadwal.jamSelesai,
@@ -534,6 +573,7 @@ function getRealtimeMonitoringData() {
           namaKelas: kNama,
           status: 'Guru Belum Masuk',
           namaGuru: guruNama,
+          guruId: activeJadwal.guruId,
           mapel: activeJadwal.mapel,
           jamMulai: activeJadwal.jamMulai,
           jamSelesai: activeJadwal.jamSelesai
@@ -546,16 +586,16 @@ function getRealtimeMonitoringData() {
   const journalsList = [];
   const nowMinTotal = timeToMinutes(nowStr);
   for (let j = 1; j < jurnalRows.length; j++) {
-    const jTanggal = jurnalRows[j][1];
+    if (!jurnalRows[j][0]) continue;
+    const jTanggal = formatDateVal(jurnalRows[j][1]);
     const jKelasId = jurnalRows[j][3];
     const jGuruId = jurnalRows[j][4];
     let jStatus = jurnalRows[j][8] || 'Sedang KBM';
 
-    // Cari jamSelesai di jadwal untuk kelas & guru ini
-    let endMin = 1440; // Default end of day
+    let endMin = 1440;
     for (let k = 1; k < jadwalRows.length; k++) {
       if (jadwalRows[k][4] === jKelasId && jadwalRows[k][5] === jGuruId) {
-        endMin = timeToMinutes(jadwalRows[k][3]); // jamSelesai
+        endMin = timeToMinutes(jadwalRows[k][3]);
         break;
       }
     }
@@ -571,8 +611,9 @@ function getRealtimeMonitoringData() {
       tanggal: jTanggal,
       jam: jurnalRows[j][2],
       kelasId: jKelasId,
-      kelasNama: jKelasId,
+      kelasNama: kelasMap[jKelasId] || jKelasId,
       guruId: jGuruId,
+      guruNama: userMap[jGuruId] || jGuruId,
       mapel: jurnalRows[j][5],
       subBabMateri: jurnalRows[j][6],
       jumlahSiswaHadir: jurnalRows[j][7],
@@ -583,10 +624,13 @@ function getRealtimeMonitoringData() {
   // Ambil daftar absensi harian
   const absensiList = [];
   for (let a = 1; a < absenRows.length; a++) {
+    if (!absenRows[a][0]) continue;
+    const aGuruId = absenRows[a][2];
     absensiList.push({
       id: absenRows[a][0],
-      tanggal: absenRows[a][1],
-      guruId: absenRows[a][2],
+      tanggal: formatDateVal(absenRows[a][1]),
+      guruId: aGuruId,
+      guruNama: userMap[aGuruId] || aGuruId,
       jamMasuk: absenRows[a][3],
       fotoMasuk: absenRows[a][4],
       latLongMasuk: absenRows[a][5],

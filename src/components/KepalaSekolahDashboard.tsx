@@ -13,6 +13,7 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
   const [totalTanpaAbsen, setTotalTanpaAbsen] = useState<number>(0);
   const [journals, setJournals] = useState<JurnalMengajar[]>([]);
   const [absensiList, setAbsensiList] = useState<AbsensiHarian[]>([]);
+  const [userMap, setUserMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<'grid' | 'jurnal' | 'rekapAbsen'>('grid');
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -21,6 +22,17 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
   const fetchRealtimeData = async () => {
     setLoading(true);
     try {
+      // 1. Fetch Users to ensure full teacher name mapping
+      const usersRes = await GasService.getUsers();
+      const uMap: Record<string, string> = {};
+      if (usersRes && Array.isArray(usersRes.data)) {
+        usersRes.data.forEach((u: User) => {
+          if (u.id && u.nama) uMap[u.id] = u.nama;
+        });
+        setUserMap(uMap);
+      }
+
+      // 2. Fetch Monitoring Data from Apps Script Spreadsheet
       const res = await GasService.getRealtimeMonitoringData();
       if (res && res.success) {
         setMonitoringClasses(res.classes || []);
@@ -43,11 +55,29 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
     return () => clearInterval(interval);
   }, []);
 
-  // Filtering
+  // Filtering for Class Cards
   const filteredClasses = monitoringClasses.filter(c =>
     c.namaKelas.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (c.namaGuru && c.namaGuru.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (c.guruId && userMap[c.guruId] && userMap[c.guruId].toLowerCase().includes(searchTerm.toLowerCase())) ||
     (c.mapel && c.mapel.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+
+  // Filtering for Journals
+  const filteredJournals = journals.filter(j =>
+    (j.guruNama && j.guruNama.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (j.guruId && userMap[j.guruId] && userMap[j.guruId].toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (j.kelasNama && j.kelasNama.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (j.mapel && j.mapel.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (j.subBabMateri && j.subBabMateri.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+
+  // Filtering for Absensi
+  const filteredAbsensi = absensiList.filter(a =>
+    (a.guruNama && a.guruNama.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (a.guruId && userMap[a.guruId] && userMap[a.guruId].toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (a.tanggal && a.tanggal.includes(searchTerm)) ||
+    (a.status && a.status.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   return (
@@ -297,9 +327,26 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
       {/* TAB 2: JURNAL MENGAJAR VIEWER */}
       {activeTab === 'jurnal' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Daftar Jurnal Mengajar Hari Ini</h3>
-            <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">{journals.length} Jurnal Terdaftar</span>
+          <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Daftar Jurnal Mengajar Realtime Spreadsheet</h3>
+              <p className="text-[10px] text-slate-500">Data jurnal yang diisi oleh guru melalui scan QR Kelas.</p>
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="relative w-full sm:w-48">
+                <Search className="w-3 h-3 text-slate-400 absolute left-2.5 top-2" />
+                <input
+                  type="text"
+                  placeholder="Cari guru, kelas, mapel..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-8 pr-2 py-1 text-[11px] bg-white rounded border border-slate-200 outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
+              <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-200 whitespace-nowrap">
+                {filteredJournals.length} Jurnal
+              </span>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -307,24 +354,31 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
               <thead className="bg-slate-100 text-slate-600 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
                 <tr>
                   <th className="p-3">Waktu</th>
+                  <th className="p-3">Nama Guru</th>
                   <th className="p-3">Kelas</th>
                   <th className="p-3">Mata Pelajaran</th>
-                  <th className="p-3">Sub-Bab Materi</th>
+                  <th className="p-3">Sub-Bab / Materi</th>
                   <th className="p-3">Siswa Hadir</th>
                   <th className="p-3">Status KBM</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
-                {journals.length === 0 ? (
+                {filteredJournals.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-8 text-center text-slate-400">
-                      Belum ada jurnal mengajar yang diisi hari ini.
+                    <td colSpan={7} className="p-8 text-center text-slate-400">
+                      {searchTerm ? 'Tidak ada jurnal yang sesuai pencarian.' : 'Belum ada jurnal mengajar yang diisi di spreadsheet.'}
                     </td>
                   </tr>
                 ) : (
-                  journals.map((j) => (
+                  filteredJournals.map((j) => (
                     <tr key={j.id} className="hover:bg-slate-50/80">
-                      <td className="p-3 font-mono font-bold text-slate-900">{j.jam}</td>
+                      <td className="p-3 font-mono font-bold text-slate-900 whitespace-nowrap">
+                        <div>{j.jam || '-'}</div>
+                        <div className="text-[10px] text-slate-400 font-normal">{j.tanggal}</div>
+                      </td>
+                      <td className="p-3 font-bold text-slate-900">
+                        {j.guruNama || userMap[j.guruId] || j.guruId}
+                      </td>
                       <td className="p-3 font-bold text-emerald-700">{j.kelasNama || j.kelasId}</td>
                       <td className="p-3 font-semibold">{j.mapel}</td>
                       <td className="p-3 text-slate-800 whitespace-pre-wrap max-w-xs leading-relaxed">{j.subBabMateri}</td>
@@ -350,9 +404,26 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
       {/* TAB 3: REKAP ABSENSI HARIAN GURU */}
       {activeTab === 'rekapAbsen' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Rekap Absensi Selfie &amp; GPS Guru</h3>
-            <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">{absensiList.length} Catatan Absen</span>
+          <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Rekap Absensi Selfie &amp; GPS Guru</h3>
+              <p className="text-[10px] text-slate-500">Data presensi selfie pendaftaran guru terhubung ke Google Sheets.</p>
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="relative w-full sm:w-48">
+                <Search className="w-3 h-3 text-slate-400 absolute left-2.5 top-2" />
+                <input
+                  type="text"
+                  placeholder="Cari nama guru, tanggal..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-8 pr-2 py-1 text-[11px] bg-white rounded border border-slate-200 outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+              <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded border border-indigo-200 whitespace-nowrap">
+                {filteredAbsensi.length} Catatan Absen
+              </span>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -360,7 +431,7 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
               <thead className="bg-slate-100 text-slate-600 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
                 <tr>
                   <th className="p-3">Tanggal</th>
-                  <th className="p-3">Guru ID</th>
+                  <th className="p-3">Nama Guru</th>
                   <th className="p-3">Jam Masuk</th>
                   <th className="p-3">Foto Masuk</th>
                   <th className="p-3">Jam Pulang</th>
@@ -369,17 +440,20 @@ export const KepalaSekolahDashboard: React.FC<KepalaSekolahDashboardProps> = ({ 
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
-                {absensiList.length === 0 ? (
+                {filteredAbsensi.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="p-8 text-center text-slate-400">
-                      Belum ada data absensi selfie hari ini.
+                      {searchTerm ? 'Tidak ada absensi yang sesuai pencarian.' : 'Belum ada data absensi selfie di spreadsheet hari ini.'}
                     </td>
                   </tr>
                 ) : (
-                  absensiList.map((a) => (
+                  filteredAbsensi.map((a) => (
                     <tr key={a.id} className="hover:bg-slate-50/80">
-                      <td className="p-3">{a.tanggal}</td>
-                      <td className="p-3 font-bold text-slate-900">{a.guruId}</td>
+                      <td className="p-3 font-mono">{a.tanggal}</td>
+                      <td className="p-3">
+                        <div className="font-bold text-slate-900">{a.guruNama || userMap[a.guruId] || a.guruId}</div>
+                        <div className="text-[10px] text-slate-400 font-mono">ID: {a.guruId}</div>
+                      </td>
                       <td className="p-3 font-mono text-emerald-600 font-bold">{a.jamMasuk || '-'}</td>
                       <td className="p-3">
                         {a.fotoMasuk ? (

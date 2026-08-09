@@ -3,7 +3,7 @@ import { Settings, User } from "../types";
 // Dynamic API Service Handler for Apps Script & Browser Environment
 export class GasService {
   // Global default fallback Web App URL for multi-device support
-  public static DEFAULT_WEB_APP_URL: string = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GAS_WEB_APP_URL) || "";
+  public static DEFAULT_WEB_APP_URL: string = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GAS_WEB_APP_URL) || "https://script.google.com/macros/s/AKfycbxk58RAqJXeOW6SwGajPZlK5hAgHQayY7cZhnRve_RwzYmG0YQzKeQWAjJmBeriu3VJ/exec";
 
   public static getStoredWebAppUrl(): string {
     const local = localStorage.getItem("gas_web_app_url");

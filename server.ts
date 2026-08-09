@@ -9,7 +9,7 @@ app.use(express.json({ limit: '20mb' }));
 
 // In-Memory Database State (Pre-populated with default seed for real-time local execution & synced with Google Apps Script schema)
 let settingsData = {
-  webAppUrl: "",
+  webAppUrl: "https://script.google.com/macros/s/AKfycbxk58RAqJXeOW6SwGajPZlK5hAgHQayY7cZhnRve_RwzYmG0YQzKeQWAjJmBeriu3VJ/exec",
   schoolName: "SMP Negeri 1 SmartSchool",
   schoolLat: -6.200000,
   schoolLng: 106.816666,

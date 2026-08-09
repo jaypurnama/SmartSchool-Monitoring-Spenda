@@ -91,16 +91,43 @@ app.post("/api/gas-proxy", async (req, res) => {
     return res.status(400).json({ success: false, message: "URL Web App Google Apps Script belum diisi di Pengaturan!" });
   }
 
+  // Construct target URL with action query param so Google Apps Script 302 redirects preserve action in doGet
+  const targetUrl = `${webAppUrl}${webAppUrl.includes('?') ? '&' : '?'}action=${encodeURIComponent(action)}`;
+
   try {
-    const response = await fetch(webAppUrl, {
+    const response = await fetch(targetUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, payload })
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action, payload }),
+      redirect: "follow"
     });
-    const json = await response.json();
-    res.json(json);
+    const text = await response.text();
+    try {
+      const json = JSON.parse(text);
+      if (json && (json.success !== undefined || json.classes || json.journals || json.absensi || json.data || json.user || json.settings)) {
+        if (json.success === undefined) json.success = true;
+        return res.json(json);
+      }
+    } catch (parseErr) {
+      // ignore
+    }
+
+    // Try GET request fallback
+    const getRes = await fetch(targetUrl, { redirect: "follow" });
+    const getText = await getRes.text();
+    const getJson = JSON.parse(getText);
+    if (getJson && getJson.success === undefined) getJson.success = true;
+    return res.json(getJson);
   } catch (err: any) {
-    res.status(500).json({ success: false, message: "Gagal terhubung ke Apps Script Web App: " + err.message });
+    try {
+      const getRes = await fetch(targetUrl, { redirect: "follow" });
+      const getText = await getRes.text();
+      const getJson = JSON.parse(getText);
+      if (getJson && getJson.success === undefined) getJson.success = true;
+      return res.json(getJson);
+    } catch (err2: any) {
+      res.status(500).json({ success: false, message: "Gagal terhubung ke Apps Script Web App: " + err.message });
+    }
   }
 });
 

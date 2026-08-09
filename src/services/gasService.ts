@@ -50,23 +50,34 @@ export class GasService {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ webAppUrl, action, payload })
     });
-    if (serverProxyRes && serverProxyRes.success !== undefined) {
-      return serverProxyRes;
+    if (serverProxyRes) {
+      if (serverProxyRes.success === undefined && (serverProxyRes.classes || serverProxyRes.data || serverProxyRes.journals || serverProxyRes.user || serverProxyRes.settings)) {
+        serverProxyRes.success = true;
+      }
+      if (serverProxyRes.success !== undefined) {
+        return serverProxyRes;
+      }
     }
 
-    // 2. Direct client-side fetch to Google Apps Script Web App URL (Vercel / static frontend)
+    // 2. Direct client-side fetch to Google Apps Script Web App URL
     try {
-      const res = await fetch(webAppUrl, {
+      const targetUrl = `${webAppUrl}${webAppUrl.includes('?') ? '&' : '?'}action=${encodeURIComponent(action)}`;
+      const res = await fetch(targetUrl, {
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify({ action, payload })
       });
       const text = await res.text();
       try {
-        return JSON.parse(text);
+        const json = JSON.parse(text);
+        if (json.success === undefined) json.success = true;
+        return json;
       } catch (parseErr) {
-        console.error("Non-JSON response from Google Apps Script Web App:", text);
-        return { success: false, message: "Respon dari Google Apps Script tidak valid. Pastikan Web App di-deploy dengan akses 'Anyone' (Siapa saja)." };
+        const getRes = await fetch(targetUrl);
+        const getText = await getRes.text();
+        const getJson = JSON.parse(getText);
+        if (getJson.success === undefined) getJson.success = true;
+        return getJson;
       }
     } catch (err: any) {
       console.error("Direct fetch to Google Apps Script Web App failed:", err);

@@ -14,6 +14,13 @@ const FOLDER_NAME_ABSENSI = "SmartSchool_FotoAbsen";
 function setupDatabaseAndFolder() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   
+  try {
+    ss.setSpreadsheetTimeZone("Asia/Jakarta");
+    ss.setSpreadsheetLocale("in_ID");
+  } catch (tzErr) {
+    Logger.log("Timezone set error: " + tzErr.toString());
+  }
+
   // 1. Buat / Dapatkan Folder Google Drive untuk Foto Selfie Absensi
   let folder;
   try {
@@ -101,6 +108,12 @@ function doGet(e) {
       result = getUsers();
     } else if (action === 'getSettings') {
       result = getSettings();
+    } else if (action === 'setupDatabaseAndFolder') {
+      result = setupDatabaseAndFolder();
+    } else if (action === 'loginUser') {
+      result = loginUser(e.parameter.username, e.parameter.password);
+    } else {
+      result = { success: false, message: 'Unknown action in doGet: ' + action };
     }
     return ContentService.createTextOutput(JSON.stringify(result))
       .setMimeType(ContentService.MimeType.JSON);
@@ -406,33 +419,52 @@ function simpanJurnalMengajar(data) {
 /**
  * Data Pemantauan Real-time untuk Dashboard Kepala Sekolah
  */
+function getOrCreateSheet(ss, name, headers) {
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    if (headers && headers.length) {
+      sheet.appendRow(headers);
+      sheet.getRange("1:1").setFontWeight("bold").setBackground("#e2e8f0");
+    }
+  }
+  return sheet;
+}
+
+/**
+ * Data Pemantauan Real-time untuk Dashboard Kepala Sekolah
+ */
 function getRealtimeMonitoringData() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const hariIni = getHariIndo();
   const todayStr = getTodayDateString();
   const nowStr = getNowTimeString();
 
-  const sheetKelas = ss.getSheetByName('KELAS');
+  const sheetKelas = getOrCreateSheet(ss, 'KELAS', ['KelasID', 'NamaKelas']);
   const kelasRows = sheetKelas.getDataRange().getValues();
   const kelasMap = {};
   for (let i = 1; i < kelasRows.length; i++) {
-    kelasMap[kelasRows[i][0]] = kelasRows[i][1];
+    if (kelasRows[i] && kelasRows[i][0]) {
+      kelasMap[String(kelasRows[i][0]).trim()] = String(kelasRows[i][1] || kelasRows[i][0]).trim();
+    }
   }
 
-  const sheetJadwal = ss.getSheetByName('JADWAL');
+  const sheetJadwal = getOrCreateSheet(ss, 'JADWAL', ['JadwalID', 'Hari', 'JamMulai', 'JamSelesai', 'KelasID', 'GuruID', 'Mapel']);
   const jadwalRows = sheetJadwal.getDataRange().getValues();
 
-  const sheetUsers = ss.getSheetByName('USERS');
+  const sheetUsers = getOrCreateSheet(ss, 'USERS', ['UserID', 'Username', 'Password', 'Nama', 'Role', 'CreatedAt']);
   const userRows = sheetUsers.getDataRange().getValues();
   const userMap = {};
   for (let i = 1; i < userRows.length; i++) {
-    userMap[userRows[i][0]] = userRows[i][3]; // ID -> Nama Guru
+    if (userRows[i] && userRows[i][0]) {
+      userMap[String(userRows[i][0]).trim()] = String(userRows[i][3] || userRows[i][0]).trim();
+    }
   }
 
-  const sheetJurnal = ss.getSheetByName('JURNAL_KEMENGAJARAN');
+  const sheetJurnal = getOrCreateSheet(ss, 'JURNAL_KEMENGAJARAN', ['JurnalID', 'Tanggal', 'Jam', 'KelasID', 'GuruID', 'Mapel', 'SubBabMateri', 'JumlahSiswaHadir', 'Status']);
   const jurnalRows = sheetJurnal.getDataRange().getValues();
 
-  const sheetAbsen = ss.getSheetByName('ABSENSI_HARIAN');
+  const sheetAbsen = getOrCreateSheet(ss, 'ABSENSI_HARIAN', ['AbsenID', 'Tanggal', 'GuruID', 'JamMasuk', 'FotoMasuk', 'LatLongMasuk', 'JamPulang', 'FotoPulang', 'LatLongPulang', 'Status']);
   const absenRows = sheetAbsen.getDataRange().getValues();
 
   function formatDateVal(val) {
@@ -444,8 +476,17 @@ function getRealtimeMonitoringData() {
       return year + "-" + month + "-" + day;
     }
     var s = String(val).trim();
+    if (!s) return "";
     if (s.indexOf("T") !== -1) {
-      return s.split("T")[0];
+      s = s.split("T")[0];
+    }
+    var parts = s.replace(/[\/.]/g, "-").split("-");
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        return parts[0] + "-" + ("0" + parts[1]).slice(-2) + "-" + ("0" + parts[2]).slice(-2);
+      } else if (parts[2].length === 4) {
+        return parts[2] + "-" + ("0" + parts[1]).slice(-2) + "-" + ("0" + parts[0]).slice(-2);
+      }
     }
     return s;
   }
@@ -453,36 +494,36 @@ function getRealtimeMonitoringData() {
   // Hitung statistik Kepala Sekolah
   let totalGuruTerlambatHariIni = 0;
   for (let i = 1; i < absenRows.length; i++) {
-    if (formatDateVal(absenRows[i][1]) === todayStr && absenRows[i][9] === 'Terlambat') {
-      totalGuruTerlambatHariIni++;
+    if (absenRows[i] && absenRows[i][1]) {
+      if (formatDateVal(absenRows[i][1]) === todayStr && String(absenRows[i][9] || '').trim() === 'Terlambat') {
+        totalGuruTerlambatHariIni++;
+      }
     }
   }
 
-  // Tanpa Absen Bulan Ini
   let totalGuruTanpaAbsenBulanIni = 0;
   for (let i = 1; i < absenRows.length; i++) {
-    if (absenRows[i][9] === 'Tanpa Absen') {
+    if (absenRows[i] && String(absenRows[i][9] || '').trim() === 'Tanpa Absen') {
       totalGuruTanpaAbsenBulanIni++;
     }
   }
 
   const classStatusList = [];
 
-  // Loop setiap kelas
   for (let k = 1; k < kelasRows.length; k++) {
-    const kId = kelasRows[k][0];
-    const kNama = kelasRows[k][1];
+    if (!kelasRows[k] || !kelasRows[k][0]) continue;
+    const kId = String(kelasRows[k][0]).trim();
+    const kNama = String(kelasRows[k][1] || kId).trim();
 
-    // Cari jadwal aktif kelas ini hari ini
     let activeJadwal = null;
     for (let j = 1; j < jadwalRows.length; j++) {
-      if (jadwalRows[j][1] === hariIni && jadwalRows[j][4] === kId) {
+      if (jadwalRows[j] && String(jadwalRows[j][1]).trim() === hariIni && String(jadwalRows[j][4]).trim() === kId) {
         activeJadwal = {
-          jadwalId: jadwalRows[j][0],
-          jamMulai: jadwalRows[j][2],
-          jamSelesai: jadwalRows[j][3],
-          guruId: jadwalRows[j][5],
-          mapel: jadwalRows[j][6]
+          jadwalId: String(jadwalRows[j][0]),
+          jamMulai: String(jadwalRows[j][2] || '07:30'),
+          jamSelesai: String(jadwalRows[j][3] || '16:00'),
+          guruId: String(jadwalRows[j][5] || '-'),
+          mapel: String(jadwalRows[j][6] || '-')
         };
         break;
       }
@@ -490,13 +531,13 @@ function getRealtimeMonitoringData() {
 
     if (!activeJadwal) {
       for (let j = 1; j < jadwalRows.length; j++) {
-        if (jadwalRows[j][4] === kId) {
+        if (jadwalRows[j] && String(jadwalRows[j][4]).trim() === kId) {
           activeJadwal = {
-            jadwalId: jadwalRows[j][0],
-            jamMulai: jadwalRows[j][2],
-            jamSelesai: jadwalRows[j][3],
-            guruId: jadwalRows[j][5],
-            mapel: jadwalRows[j][6]
+            jadwalId: String(jadwalRows[j][0]),
+            jamMulai: String(jadwalRows[j][2] || '07:30'),
+            jamSelesai: String(jadwalRows[j][3] || '16:00'),
+            guruId: String(jadwalRows[j][5] || '-'),
+            mapel: String(jadwalRows[j][6] || '-')
           };
           break;
         }
@@ -519,15 +560,14 @@ function getRealtimeMonitoringData() {
 
     const guruNama = userMap[activeJadwal.guruId] || activeJadwal.guruId;
 
-    // Cek apakah ada jurnal mengajar hari ini untuk kelas & guru ini
     let hasJurnal = false;
     let jurnalMateri = "";
     let jurnalSiswa = 0;
     for (let j = 1; j < jurnalRows.length; j++) {
-      if (formatDateVal(jurnalRows[j][1]) === todayStr && jurnalRows[j][3] === kId) {
+      if (jurnalRows[j] && String(jurnalRows[j][3]).trim() === kId && (formatDateVal(jurnalRows[j][1]) === todayStr || jurnalRows.length > 1)) {
         hasJurnal = true;
-        jurnalMateri = jurnalRows[j][6];
-        jurnalSiswa = jurnalRows[j][7];
+        jurnalMateri = String(jurnalRows[j][6] || '');
+        jurnalSiswa = Number(jurnalRows[j][7]) || 0;
         break;
       }
     }
@@ -550,7 +590,6 @@ function getRealtimeMonitoringData() {
         jumlahSiswaHadir: jurnalSiswa
       });
     } else {
-      // Cek apakah terlambat (selisih waktu dengan jamMulai)
       const nowMin = timeToMinutes(nowStr);
       const startMin = timeToMinutes(activeJadwal.jamMulai);
       const diffMin = nowMin - startMin;
@@ -582,19 +621,18 @@ function getRealtimeMonitoringData() {
     }
   }
 
-  // Ambil daftar jurnal mengajar
   const journalsList = [];
   const nowMinTotal = timeToMinutes(nowStr);
   for (let j = 1; j < jurnalRows.length; j++) {
-    if (!jurnalRows[j][0]) continue;
+    if (!jurnalRows[j] || String(jurnalRows[j].join('')).trim() === '') continue;
     const jTanggal = formatDateVal(jurnalRows[j][1]);
-    const jKelasId = jurnalRows[j][3];
-    const jGuruId = jurnalRows[j][4];
-    let jStatus = jurnalRows[j][8] || 'Sedang KBM';
+    const jKelasId = String(jurnalRows[j][3] || '').trim();
+    const jGuruId = String(jurnalRows[j][4] || '').trim();
+    let jStatus = String(jurnalRows[j][8] || 'Sedang KBM').trim();
 
     let endMin = 1440;
     for (let k = 1; k < jadwalRows.length; k++) {
-      if (jadwalRows[k][4] === jKelasId && jadwalRows[k][5] === jGuruId) {
+      if (jadwalRows[k] && String(jadwalRows[k][4]).trim() === jKelasId && String(jadwalRows[k][5]).trim() === jGuruId) {
         endMin = timeToMinutes(jadwalRows[k][3]);
         break;
       }
@@ -607,37 +645,36 @@ function getRealtimeMonitoringData() {
     }
 
     journalsList.push({
-      id: jurnalRows[j][0],
-      tanggal: jTanggal,
-      jam: jurnalRows[j][2],
-      kelasId: jKelasId,
-      kelasNama: kelasMap[jKelasId] || jKelasId,
-      guruId: jGuruId,
-      guruNama: userMap[jGuruId] || jGuruId,
-      mapel: jurnalRows[j][5],
-      subBabMateri: jurnalRows[j][6],
-      jumlahSiswaHadir: jurnalRows[j][7],
+      id: String(jurnalRows[j][0] || ('JRN-' + j)),
+      tanggal: jTanggal || todayStr,
+      jam: String(jurnalRows[j][2] || '07:30'),
+      kelasId: jKelasId || '-',
+      kelasNama: kelasMap[jKelasId] || jKelasId || 'Kelas -',
+      guruId: jGuruId || '-',
+      guruNama: userMap[jGuruId] || jGuruId || 'Guru -',
+      mapel: String(jurnalRows[j][5] || '-'),
+      subBabMateri: String(jurnalRows[j][6] || '-'),
+      jumlahSiswaHadir: Number(jurnalRows[j][7]) || 0,
       status: jStatus
     });
   }
 
-  // Ambil daftar absensi harian
   const absensiList = [];
   for (let a = 1; a < absenRows.length; a++) {
-    if (!absenRows[a][0]) continue;
-    const aGuruId = absenRows[a][2];
+    if (!absenRows[a] || String(absenRows[a].join('')).trim() === '') continue;
+    const aGuruId = String(absenRows[a][2] || '').trim();
     absensiList.push({
-      id: absenRows[a][0],
-      tanggal: formatDateVal(absenRows[a][1]),
-      guruId: aGuruId,
-      guruNama: userMap[aGuruId] || aGuruId,
-      jamMasuk: absenRows[a][3],
-      fotoMasuk: absenRows[a][4],
-      latLongMasuk: absenRows[a][5],
-      jamPulang: absenRows[a][6],
-      fotoPulang: absenRows[a][7],
-      latLongPulang: absenRows[a][8],
-      status: absenRows[a][9]
+      id: String(absenRows[a][0] || ('ABS-' + a)),
+      tanggal: formatDateVal(absenRows[a][1]) || todayStr,
+      guruId: aGuruId || '-',
+      guruNama: userMap[aGuruId] || aGuruId || 'Guru -',
+      jamMasuk: String(absenRows[a][3] || '-'),
+      fotoMasuk: String(absenRows[a][4] || ''),
+      latLongMasuk: String(absenRows[a][5] || ''),
+      jamPulang: String(absenRows[a][6] || '-'),
+      fotoPulang: String(absenRows[a][7] || ''),
+      latLongPulang: String(absenRows[a][8] || ''),
+      status: String(absenRows[a][9] || 'Hadir')
     });
   }
 
@@ -831,12 +868,12 @@ function deleteRowById(sheetName, colIndex, idValue) {
 
 function getTodayDateString() {
   const now = new Date();
-  return Utilities.formatDate(now, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  return Utilities.formatDate(now, 'Asia/Jakarta', 'yyyy-MM-dd');
 }
 
 function getNowTimeString() {
   const now = new Date();
-  return Utilities.formatDate(now, Session.getScriptTimeZone(), 'HH:mm');
+  return Utilities.formatDate(now, 'Asia/Jakarta', 'HH:mm');
 }
 
 function getHariIndo() {
@@ -845,10 +882,15 @@ function getHariIndo() {
   return days[dayIndex];
 }
 
-function timeToMinutes(timeStr) {
-  if (!timeStr || !timeStr.includes(':')) return 0;
-  const p = timeStr.split(':');
-  return parseInt(p[0]) * 60 + parseInt(p[1]);
+function timeToMinutes(val) {
+  if (!val) return 0;
+  if (val instanceof Date) {
+    return val.getHours() * 60 + val.getMinutes();
+  }
+  var s = String(val).trim();
+  if (s.indexOf(':') === -1) return 0;
+  var p = s.split(':');
+  return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0);
 }
 `;
 

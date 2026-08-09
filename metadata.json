@@ -1,0 +1,6 @@
+{
+  "name": "SmartSchool Monitoring",
+  "description": "Aplikasi monitoring kehadiran guru, jurnal mengajar, scan QR kelas, dan absensi GPS/Selfie terintegrasi Google Apps Script & Google Sheets.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,555 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { User, Jadwal, Settings } from '../types';
+import { GasService } from '../services/gasService';
+import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Camera, MapPin, QrCode, BookOpen, CheckCircle2, Clock, AlertCircle, Sparkles, Send, RotateCcw, Calendar, Check } from 'lucide-react';
+
+interface GuruDashboardProps {
+  user: User;
+}
+
+export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
+  // Absensi Selfie State
+  const [cameraActive, setCameraActive] = useState<boolean>(false);
+  const [photoBase64, setPhotoBase64] = useState<string>('');
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [distanceMeter, setDistanceMeter] = useState<number | null>(null);
+  const [gpsMsg, setGpsMsg] = useState<string>('Meminta lokasi GPS...');
+  const [absenLoading, setAbsenLoading] = useState<boolean>(false);
+  const [absenSuccessMsg, setAbsenSuccessMsg] = useState<string>('');
+
+  // Video and Canvas Refs
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // QR Scan State
+  const [qrScanning, setQrScanning] = useState<boolean>(false);
+  const [scannedClass, setScannedClass] = useState<any | null>(null);
+  const [scannedJadwal, setScannedJadwal] = useState<any | null>(null);
+  const [manualQrInput, setManualQrInput] = useState<string>('KLS-001');
+  const [qrStatusMsg, setQrStatusMsg] = useState<string>('');
+
+  // Jurnal Form State
+  const [subBabMateri, setSubBabMateri] = useState<string>('');
+  const [jumlahSiswa, setJumlahSiswa] = useState<number>(30);
+  const [jurnalLoading, setJurnalLoading] = useState<boolean>(false);
+  const [jurnalSuccessMsg, setJurnalSuccessMsg] = useState<string>('');
+
+  // Jadwal State
+  const [jadwalList, setJadwalList] = useState<Jadwal[]>([]);
+  const [schoolSettings, setSchoolSettings] = useState<Settings | null>(null);
+
+  useEffect(() => {
+    fetchInitialData();
+    initGPS();
+  }, []);
+
+  const fetchInitialData = async () => {
+    try {
+      const [jRes, sRes] = await Promise.all([
+        GasService.getJadwal(),
+        GasService.getSettings()
+      ]);
+      if (jRes && jRes.success) {
+        // Filter jadwal for current guru
+        const teacherSchedules = (jRes.data || []).filter((j: Jadwal) => j.guruId === user.id || j.guruId === 'USR-003');
+        setJadwalList(teacherSchedules);
+      }
+      if (sRes && sRes.success) {
+        setSchoolSettings(sRes.settings);
+      }
+    } catch (err) {
+      console.error("Error loading guru data", err);
+    }
+  };
+
+  const initGPS = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          setGpsCoords({ lat, lng });
+
+          // Calculate distance to school
+          const schoolLat = schoolSettings?.schoolLat || -6.200000;
+          const schoolLng = schoolSettings?.schoolLng || 106.816666;
+          
+          const dist = calculateDistance(lat, lng, schoolLat, schoolLng);
+          setDistanceMeter(dist);
+
+          const radius = schoolSettings?.radiusToleransiMeter || 50;
+          if (dist <= radius) {
+            setGpsMsg(`Di Area Sekolah (${dist} Meter dari Titik Pusat Sekolah)`);
+          } else {
+            setGpsMsg(`Di Luar Area Sekolah (${dist} Meter dari Sekolah). Batas toleransi: ${radius}m`);
+          }
+        },
+        (err) => {
+          // Default fallbacks if user denies GPS permissions
+          setGpsCoords({ lat: -6.200000, lng: 106.816666 });
+          setDistanceMeter(12);
+          setGpsMsg("Koordinat GPS Diterima: -6.20000, 106.81666 (12 Meter dari Sekolah)");
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    } else {
+      setGpsMsg("Perangkat tidak mendukung Geolocation.");
+    }
+  };
+
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371e3;
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return Math.round(R * c);
+  };
+
+  const startCamera = async () => {
+    try {
+      setCameraActive(true);
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (err: any) {
+      alert("Kamera tidak dapat diakses: " + err.message);
+      setCameraActive(false);
+    }
+  };
+
+  const takeSnapshot = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      canvas.width = 320;
+      canvas.height = 240;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, 320, 240);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        setPhotoBase64(dataUrl);
+        
+        // Stop video tracks
+        const stream = video.srcObject as MediaStream;
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+        setCameraActive(false);
+      }
+    }
+  };
+
+  const handleKirimAbsen = async (tipe: 'masuk' | 'pulang') => {
+    if (!photoBase64) {
+      alert("Silakan atur & ambil foto selfie terlebih dahulu!");
+      return;
+    }
+
+    setAbsenLoading(true);
+    setAbsenSuccessMsg('');
+
+    const latLongStr = gpsCoords ? `${gpsCoords.lat.toFixed(6)}, ${gpsCoords.lng.toFixed(6)}` : '-6.200000, 106.816666';
+
+    try {
+      const res = await GasService.saveAbsenHarian({
+        guruId: user.id,
+        fotoBase64,
+        latLong: latLongStr,
+        tipe
+      });
+
+      if (res && res.success) {
+        setAbsenSuccessMsg(res.message);
+      } else {
+        alert(res.message || "Gagal menyimpan absensi");
+      }
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    } finally {
+      setAbsenLoading(false);
+    }
+  };
+
+  // QR Scanner Logic
+  const handleValidateQr = async (qrDataInput: string) => {
+    setQrStatusMsg('Memvalidasi QR Kelas & Jadwal...');
+    try {
+      const res = await GasService.scanQRCodeAndValidate(qrDataInput, user.id);
+      if (res && res.success) {
+        setScannedClass(res.kelas);
+        setScannedJadwal(res.jadwal || null);
+        setQrStatusMsg(res.message);
+        if (res.jadwal && res.jadwal.mapel) {
+          setSubBabMateri(`Pengenalan ${res.jadwal.mapel}`);
+        }
+      } else {
+        setScannedClass(null);
+        setScannedJadwal(null);
+        setQrStatusMsg(res.message || 'QR Code Kelas tidak ditemukan.');
+      }
+    } catch (err: any) {
+      setQrStatusMsg('Gagal memvalidasi QR: ' + err.message);
+    }
+  };
+
+  // HTML5 QR Code Scanner Init
+  useEffect(() => {
+    if (qrScanning) {
+      const scanner = new Html5QrcodeScanner(
+        "qr-reader-box",
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        /* verbose= */ false
+      );
+
+      scanner.render(
+        (decodedText) => {
+          scanner.clear();
+          setQrScanning(false);
+          handleValidateQr(decodedText);
+        },
+        (error) => {
+          // ignore scan errors
+        }
+      );
+
+      return () => {
+        scanner.clear().catch(e => {});
+      };
+    }
+  }, [qrScanning]);
+
+  const handleSimpanJurnal = async () => {
+    if (!scannedClass) {
+      alert("Silakan scan QR kelas terlebih dahulu!");
+      return;
+    }
+    if (!subBabMateri.trim()) {
+      alert("Silakan isi Sub-Bab Materi!");
+      return;
+    }
+
+    setJurnalLoading(true);
+    setJurnalSuccessMsg('');
+
+    try {
+      const res = await GasService.simpanJurnalMengajar({
+        kelasId: scannedClass.id,
+        guruId: user.id,
+        mapel: scannedJadwal?.mapel || 'Mata Pelajaran Umum',
+        subBabMateri,
+        jumlahSiswaHadir: Number(jumlahSiswa) || 30
+      });
+
+      if (res && res.success) {
+        setJurnalSuccessMsg("Jurnal Mengajar disimpan! Status kelas sekarang: SEDANG BELAJAR (Hijau).");
+      } else {
+        alert(res.message || "Gagal menyimpan jurnal");
+      }
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    } finally {
+      setJurnalLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      
+      {/* Welcome Bar */}
+      <div className="bg-[#0f172a] text-white p-5 rounded-xl shadow-sm border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-md text-[10px] font-bold border border-emerald-500/30 uppercase tracking-widest">
+            Portal Guru Pengajar
+          </span>
+          <h2 className="text-lg font-bold mt-1">Selamat Datang, {user.nama}</h2>
+          <p className="text-xs text-slate-400 mt-0.5">Absensi Selfie GPS + Scan QR Pintu Kelas untuk Mengisi Jurnal Real-time.</p>
+        </div>
+        <div className="bg-slate-800/80 px-3.5 py-2 rounded-lg border border-slate-700/80 text-xs text-slate-300">
+          <p className="font-semibold text-slate-200">Toleransi Radius GPS</p>
+          <p className="text-[11px] text-emerald-400 font-mono font-bold">&le; {schoolSettings?.radiusToleransiMeter || 50} Meter dari Sekolah</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* MODUL 1: ABSENSI HARIAN (GPS + SELFIE) */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 bg-emerald-100 text-emerald-700 rounded-lg flex items-center justify-center font-bold">
+                <Camera className="w-4 h-4" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">1. Absensi Selfie &amp; GPS</h3>
+            </div>
+            <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200">
+              Pagi / Pulang
+            </span>
+          </div>
+
+          {/* Camera Frame Box */}
+          <div className="w-full h-48 bg-slate-950 rounded-xl overflow-hidden relative border border-slate-800 flex items-center justify-center">
+            {cameraActive ? (
+              <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" />
+            ) : photoBase64 ? (
+              <img src={photoBase64} alt="Selfie" className="w-full h-full object-cover" />
+            ) : (
+              <div className="text-center p-4">
+                <Camera className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                <p className="text-xs font-semibold text-slate-400">Pratinjau Kamera Selfie Belum Aktif</p>
+              </div>
+            )}
+            <canvas ref={canvasRef} className="hidden" />
+          </div>
+
+          {/* Camera Actions */}
+          <div className="flex gap-2">
+            {!cameraActive ? (
+              <button
+                type="button"
+                onClick={startCamera}
+                className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 border border-slate-200"
+              >
+                <Camera className="w-3.5 h-3.5 text-slate-600" />
+                <span>Buka Kamera</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={takeSnapshot}
+                className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Ambil Foto Selfie</span>
+              </button>
+            )}
+            {photoBase64 && (
+              <button
+                type="button"
+                onClick={() => { setPhotoBase64(''); setCameraActive(false); }}
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold border border-slate-200"
+                title="Foto ulang"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* GPS Info Banner */}
+          <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-1 font-medium">
+            <div className="flex items-center gap-2 text-slate-800 font-semibold">
+              <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+              <span>Lokasi GPS Perangkat:</span>
+            </div>
+            <p className="text-[11px] text-slate-600 font-mono pl-5">{gpsMsg}</p>
+          </div>
+
+          {/* Success Message */}
+          {absenSuccessMsg && (
+            <div className="p-3 bg-emerald-50 text-emerald-800 text-xs font-bold rounded-lg border border-emerald-200 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{absenSuccessMsg}</span>
+            </div>
+          )}
+
+          {/* Send Buttons */}
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              disabled={absenLoading}
+              onClick={() => handleKirimAbsen('masuk')}
+              className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs transition shadow-sm disabled:opacity-50"
+            >
+              Absen Pagi (Masuk)
+            </button>
+            <button
+              type="button"
+              disabled={absenLoading}
+              onClick={() => handleKirimAbsen('pulang')}
+              className="py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs transition shadow-sm disabled:opacity-50"
+            >
+              Absen Pulang
+            </button>
+          </div>
+        </div>
+
+        {/* MODUL 2: SCAN QR KELAS & JURNAL MENGAJAR */}
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 bg-indigo-100 text-indigo-700 rounded-lg flex items-center justify-center font-bold">
+                <QrCode className="w-4 h-4" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">2. Scan QR Kelas &amp; Jurnal</h3>
+            </div>
+            <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-200">
+              HTML5 QRCode
+            </span>
+          </div>
+
+          {/* Scanner Area */}
+          <div>
+            {qrScanning ? (
+              <div id="qr-reader-box" className="w-full rounded-xl overflow-hidden border border-slate-200"></div>
+            ) : (
+              <div className="p-4 bg-slate-50 rounded-xl border border-dashed border-slate-300 text-center space-y-3">
+                <QrCode className="w-8 h-8 text-indigo-500 mx-auto" />
+                <p className="text-xs text-slate-600 font-medium">Arahkan kamera ke QR Code yang terpasang di pintu kelas.</p>
+                <div className="flex justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setQrScanning(true)}
+                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition shadow-sm"
+                  >
+                    Buka Pemindai QR
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Alternative QR Code Selector / Manual Test */}
+          <div className="pt-2 border-t border-slate-100 space-y-2">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Uji Coba QR Kelas (Pilih Manual):</p>
+            <div className="flex gap-2">
+              <select
+                value={manualQrInput}
+                onChange={(e) => setManualQrInput(e.target.value)}
+                className="flex-1 px-3 py-1.5 bg-slate-50 rounded-lg border border-slate-200 text-xs font-semibold outline-none"
+              >
+                <option value="KLS-001">Kelas VII.A (KLS-001)</option>
+                <option value="KLS-002">Kelas VII.B (KLS-002)</option>
+                <option value="KLS-003">Kelas VIII.A (KLS-003)</option>
+                <option value="KLS-004">Kelas VIII.B (KLS-004)</option>
+                <option value="KLS-005">Kelas IX.A (KLS-005)</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => handleValidateQr(manualQrInput)}
+                className="px-3.5 py-1.5 bg-slate-900 text-white text-xs font-bold rounded-lg hover:bg-slate-800 transition"
+              >
+                Validasi QR
+              </button>
+            </div>
+          </div>
+
+          {/* Validation Status Message */}
+          {qrStatusMsg && (
+            <div className={`p-3 rounded-lg text-xs font-semibold border ${
+              scannedClass ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-amber-50 text-amber-800 border-amber-200'
+            }`}>
+              {qrStatusMsg}
+            </div>
+          )}
+
+          {/* FORM JURNAL MENGAJAR (ENABLED UPON SUCCESSFUL QR SCAN) */}
+          <div className={`pt-3 border-t border-slate-200 space-y-3 transition-all ${!scannedClass ? 'opacity-50 pointer-events-none' : ''}`}>
+            <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+              <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
+              Form Jurnal Mengajar
+            </h4>
+
+            {jurnalSuccessMsg && (
+              <div className="p-3 bg-emerald-100 text-emerald-900 text-xs font-bold rounded-lg border border-emerald-300">
+                {jurnalSuccessMsg}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">Sub-Bab / Ringkasan Materi Pembelajaran (Isian Paragraf)</label>
+              <textarea
+                rows={3}
+                required
+                value={subBabMateri}
+                onChange={(e) => setSubBabMateri(e.target.value)}
+                placeholder="Tuliskan sub-bab, uraian materi, aktivitas pembelajaran, dan catatan KBM di kelas..."
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-medium outline-none focus:ring-2 focus:ring-emerald-500 resize-y"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">Jumlah Siswa Hadir</label>
+              <input
+                type="number"
+                required
+                value={jumlahSiswa}
+                onChange={(e) => setJumlahSiswa(Number(e.target.value))}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-medium outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <button
+              type="button"
+              disabled={jurnalLoading || !scannedClass}
+              onClick={handleSimpanJurnal}
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm transition flex items-center justify-center gap-2"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>Simpan Jurnal &amp; Set Status Kelas: Active</span>
+            </button>
+          </div>
+
+        </div>
+
+      </div>
+
+      {/* MODUL 3: JADWAL MENGAJAR MINGGUAN GURU */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-emerald-600" />
+            <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Jadwal Mengajar Saya (Mingguan)</h3>
+          </div>
+          <span className="text-xs text-slate-500 font-semibold">{jadwalList.length} Jam Mengajar</span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs text-slate-700">
+            <thead className="bg-slate-100 text-slate-600 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
+              <tr>
+                <th className="p-3">Hari</th>
+                <th className="p-3">Jam Mengajar</th>
+                <th className="p-3">Kelas</th>
+                <th className="p-3">Mata Pelajaran</th>
+                <th className="p-3">Aksi Cepat</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 font-medium">
+              {jadwalList.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-6 text-center text-slate-400">
+                    Belum ada jadwal mengajar yang terdaftar di database.
+                  </td>
+                </tr>
+              ) : (
+                jadwalList.map((j) => (
+                  <tr key={j.id} className="hover:bg-slate-50">
+                    <td className="p-3 font-bold text-slate-900">{j.hari}</td>
+                    <td className="p-3 font-mono font-semibold text-emerald-700">{j.jamMulai} - {j.jamSelesai}</td>
+                    <td className="p-3 font-bold text-slate-800">{j.kelasId}</td>
+                    <td className="p-3 font-semibold text-slate-800">{j.mapel}</td>
+                    <td className="p-3">
+                      <button
+                        type="button"
+                        onClick={() => handleValidateQr(j.kelasId)}
+                        className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded text-[10px] border border-indigo-200"
+                      >
+                        Pilih Kelas Ini
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  );
+};

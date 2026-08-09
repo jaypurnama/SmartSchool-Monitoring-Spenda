@@ -458,26 +458,57 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Koordinat GPS Lat Sekolah</label>
-                <input
-                  type="number"
-                  step="any"
-                  value={settings.schoolLat}
-                  onChange={(e) => setSettings({ ...settings, schoolLat: parseFloat(e.target.value) })}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500"
-                />
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold text-slate-700">Koordinat GPS Titik Pusat Sekolah</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (navigator.geolocation) {
+                      navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                          setSettings(prev => ({
+                            ...prev,
+                            schoolLat: pos.coords.latitude,
+                            schoolLng: pos.coords.longitude
+                          }));
+                          alert(`Koordinat sekolah berhasil diisi dengan posisi HP Anda saat ini:\nLat: ${pos.coords.latitude}\nLong: ${pos.coords.longitude}\n\nKlik 'Simpan Pengaturan Sekolah' untuk menyimpan ke database.`);
+                        },
+                        (err) => alert("Gagal mendapatkan GPS HP: " + err.message + ". Pastikan izin lokasi diizinkan di HP Anda."),
+                        { enableHighAccuracy: true, timeout: 10000 }
+                      );
+                    } else {
+                      alert("Perangkat tidak mendukung Geolocation.");
+                    }
+                  }}
+                  className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-[11px] font-bold border border-indigo-200 transition flex items-center gap-1"
+                >
+                  <MapPin className="w-3 h-3 text-indigo-600" />
+                  <span>Dapatkan GPS HP Saat Ini</span>
+                </button>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Koordinat GPS Long Sekolah</label>
-                <input
-                  type="number"
-                  step="any"
-                  value={settings.schoolLng}
-                  onChange={(e) => setSettings({ ...settings, schoolLng: parseFloat(e.target.value) })}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500"
-                />
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">Latitude (Lat)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={settings.schoolLat}
+                    onChange={(e) => setSettings({ ...settings, schoolLat: parseFloat(e.target.value) })}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">Longitude (Long)</label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={settings.schoolLng}
+                    onChange={(e) => setSettings({ ...settings, schoolLng: parseFloat(e.target.value) })}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
               </div>
             </div>
 

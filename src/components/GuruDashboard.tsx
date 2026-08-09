@@ -59,6 +59,17 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
 
   useEffect(() => {
     fetchInitialData();
+  }, []);
+
+  // Recalculate distance whenever schoolSettings or gpsCoords is updated
+  useEffect(() => {
+    if (gpsCoords) {
+      updateDistanceAndStatus(gpsCoords.lat, gpsCoords.lng, schoolSettings);
+    }
+  }, [schoolSettings, gpsCoords]);
+
+  // Initial GPS fetch
+  useEffect(() => {
     initGPS();
   }, []);
 
@@ -81,38 +92,78 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
     }
   };
 
+  const safeParseCoord = (val: any, fallback: number): number => {
+    if (val === undefined || val === null || val === '') return fallback;
+    if (typeof val === 'number') return isNaN(val) ? fallback : val;
+    const parsed = parseFloat(String(val).replace(',', '.'));
+    return isNaN(parsed) ? fallback : parsed;
+  };
+
+  const updateDistanceAndStatus = (lat: number, lng: number, settings: Settings | null) => {
+    const schoolLat = safeParseCoord(settings?.schoolLat, -6.200000);
+    const schoolLng = safeParseCoord(settings?.schoolLng, 106.816666);
+    
+    const dist = calculateDistance(lat, lng, schoolLat, schoolLng);
+    setDistanceMeter(dist);
+
+    const radius = safeParseCoord(settings?.radiusToleransiMeter, 50);
+    if (dist <= radius) {
+      setGpsMsg(`Di Dalam Area Sekolah (${dist} Meter dari Titik Pusat Sekolah)`);
+    } else {
+      setGpsMsg(`Di Luar Area Sekolah (${dist} Meter dari Sekolah). Batas toleransi: ${radius}m`);
+    }
+  };
+
   const initGPS = () => {
     if (navigator.geolocation) {
+      setGpsMsg("Mendapatkan posisi GPS terakurat...");
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const lat = position.coords.latitude;
           const lng = position.coords.longitude;
           setGpsCoords({ lat, lng });
-
-          // Calculate distance to school
-          const schoolLat = schoolSettings?.schoolLat || -6.200000;
-          const schoolLng = schoolSettings?.schoolLng || 106.816666;
-          
-          const dist = calculateDistance(lat, lng, schoolLat, schoolLng);
-          setDistanceMeter(dist);
-
-          const radius = schoolSettings?.radiusToleransiMeter || 50;
-          if (dist <= radius) {
-            setGpsMsg(`Di Area Sekolah (${dist} Meter dari Titik Pusat Sekolah)`);
-          } else {
-            setGpsMsg(`Di Luar Area Sekolah (${dist} Meter dari Sekolah). Batas toleransi: ${radius}m`);
-          }
+          updateDistanceAndStatus(lat, lng, schoolSettings);
         },
         (err) => {
-          // Default fallbacks if user denies GPS permissions
-          setGpsCoords({ lat: -6.200000, lng: 106.816666 });
-          setDistanceMeter(12);
-          setGpsMsg("Koordinat GPS Diterima: -6.20000, 106.81666 (12 Meter dari Sekolah)");
+          console.warn("Geolocation error:", err);
+          setGpsMsg("Izin GPS tidak diberikan atau sinyal GPS lemah. Pastikan Fitur Lokasi (GPS) di HP aktif.");
         },
-        { enableHighAccuracy: true, timeout: 10000 }
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
       );
     } else {
       setGpsMsg("Perangkat tidak mendukung Geolocation.");
+    }
+  };
+
+  const handleSetSchoolLocationToCurrent = async () => {
+    if (!gpsCoords) {
+      alert("Koordinat GPS HP belum terdeteksi. Silakan aktifkan GPS HP Anda.");
+      return;
+    }
+    const confirmMsg = `Atur titik pusat sekolah ke koordinat GPS HP Anda saat ini?\nLat: ${gpsCoords.lat.toFixed(6)}\nLong: ${gpsCoords.lng.toFixed(6)}`;
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      const updatedSettings: Settings = {
+        ...(schoolSettings || {
+          webAppUrl: GasService.getStoredWebAppUrl(),
+          schoolName: 'SMP Negeri 1 SmartSchool',
+          radiusToleransiMeter: 50,
+          toleransiTerlambatMenit: 10
+        }),
+        schoolLat: gpsCoords.lat,
+        schoolLng: gpsCoords.lng
+      };
+
+      const res = await GasService.saveSettings(updatedSettings);
+      if (res && res.success) {
+        setSchoolSettings(updatedSettings);
+        alert("Berhasil menyimpan lokasi sekolah ke koordinat GPS HP Anda saat ini!");
+      } else {
+        alert("Gagal menyimpan lokasi sekolah: " + (res?.message || "Terjadi kesalahan"));
+      }
+    } catch (err: any) {
+      alert("Error: " + err.message);
     }
   };
 
@@ -484,13 +535,62 @@ export const GuruDashboard: React.FC<GuruDashboardProps> = ({ user }) => {
             )}
           </div>
 
-          {/* GPS Info Banner */}
-          <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-1 font-medium">
-            <div className="flex items-center gap-2 text-slate-800 font-semibold">
-              <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-              <span>Lokasi GPS Perangkat:</span>
+          {/* GPS Info Card */}
+          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2 font-medium">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-slate-800 font-bold">
+                <MapPin className="w-4 h-4 text-rose-500 shrink-0" />
+                <span>Status Pelacakan GPS</span>
+              </div>
+              <button
+                type="button"
+                onClick={initGPS}
+                className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 rounded-md border border-slate-200 text-[11px] font-bold flex items-center gap-1 transition"
+                title="Refresh Posisi GPS"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Perbarui GPS HP</span>
+              </button>
             </div>
-            <p className="text-[11px] text-slate-600 font-mono pl-5">{gpsMsg}</p>
+
+            {/* Status Message */}
+            <div className={`p-2.5 rounded-lg border text-xs font-semibold leading-relaxed ${
+              distanceMeter !== null && distanceMeter <= safeParseCoord(schoolSettings?.radiusToleransiMeter, 50)
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                : 'bg-amber-50 text-amber-900 border-amber-200'
+            }`}>
+              {gpsMsg}
+            </div>
+
+            {/* Technical Coordinate Details */}
+            <div className="grid grid-cols-2 gap-2 text-[11px] font-mono pt-1 text-slate-600">
+              <div className="p-2 bg-white rounded-lg border border-slate-200">
+                <p className="text-[10px] text-slate-400 font-sans font-bold uppercase tracking-wider">Koordinat HP Anda</p>
+                <p className="font-bold text-slate-800 mt-0.5">
+                  {gpsCoords ? `${gpsCoords.lat.toFixed(6)}, ${gpsCoords.lng.toFixed(6)}` : 'Mendeteksi...'}
+                </p>
+              </div>
+              <div className="p-2 bg-white rounded-lg border border-slate-200">
+                <p className="text-[10px] text-slate-400 font-sans font-bold uppercase tracking-wider">Pusat Sekolah (Target)</p>
+                <p className="font-bold text-slate-800 mt-0.5">
+                  {schoolSettings ? `${safeParseCoord(schoolSettings.schoolLat, -6.2).toFixed(6)}, ${safeParseCoord(schoolSettings.schoolLng, 106.8166).toFixed(6)}` : '-6.200000, 106.816666'}
+                </p>
+              </div>
+            </div>
+
+            {/* Admin Quick Calibration Button */}
+            {(user.role === 'Admin' || user.role === 'Kepala Sekolah' || (distanceMeter !== null && distanceMeter > 50000)) && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={handleSetSchoolLocationToCurrent}
+                  className="w-full py-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-[11px] font-bold border border-indigo-200 transition flex items-center justify-center gap-1.5"
+                >
+                  <MapPin className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Set Titik Pusat Sekolah ke Koordinat HP Saya Saat Ini</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Success Message */}
